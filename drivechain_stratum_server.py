@@ -562,29 +562,32 @@ class StratumConnection(threading.Thread):
             block_hash = sha256d(block[:80])[::-1].hex()
             logging.info(f"Share from {self.addr}: job={job_id} hash={block_hash}")
 
-            # Check against target from nbits
+            # Look up job & compute network (full) target
             job = self.tmpl_builder.jobs[job_id]
-            target = nbits_to_target(job["nbits"])
+            network_target = nbits_to_target(job["nbits"])
             hash_int = int(block_hash, 16)
 
-            if hash_int > target:
-                # Share above target: reject
-                resp = {"id": msg["id"], "result": False, "error": None}
+            if hash_int > network_target:
+                # Regular share (above network target but valid) – accept it.
+                logging.info("Accepted share (above network target, regular share)")
+                resp = {"id": msg["id"], "result": True, "error": None}
                 self.send_json(resp)
                 return
 
-            # Try submitblock
+            # Hash <= network target: this is a block candidate!
+            logging.info("Share meets network target – submitting block to node")
             block_hex = block.hex()
-            submit_result = self.rpc.submitblock(block_hex)
-            # submitblock returns None on success, or error string
-            if submit_result is None:
-                logging.info("Block accepted by node")
-                resp = {"id": msg["id"], "result": True, "error": None}
-            else:
-                logging.warning(f"submitblock returned error: {submit_result}")
-                # Many pools still count it as valid share even if block rejected
-                resp = {"id": msg["id"], "result": True, "error": None}
+            try:
+                submit_result = self.rpc.submitblock(block_hex)
+                if submit_result is None:
+                    logging.info("Block accepted by node")
+                else:
+                    logging.warning(f"submitblock returned error: {submit_result}")
+            except Exception:
+                logging.exception("submitblock RPC raised an exception")
 
+            # Either way, count it as an accepted share for the miner
+            resp = {"id": msg["id"], "result": True, "error": None}
             self.send_json(resp)
 
         except Exception as e:
