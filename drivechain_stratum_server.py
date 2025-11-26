@@ -44,6 +44,10 @@ SC_RPC_PORT = int(os.getenv("SC_RPC_PORT", "18554"))
 SC_RPC_USER = os.getenv("SC_RPC_USER", "scrpcuser")
 SC_RPC_PASSWORD = os.getenv("SC_RPC_PASSWORD", "scrpcpassword")
 
+# Sidechain enable/disable flag
+# Set ENABLE_SIDECHAIN=0 to disable sidechain RPC and BMM output
+ENABLE_SIDECHAIN = os.getenv("ENABLE_SIDECHAIN", "1") == "1"
+
 # Stratum server bind
 STRATUM_HOST = os.getenv("STRATUM_HOST", "0.0.0.0")
 STRATUM_PORT = int(os.getenv("STRATUM_PORT", "3333"))
@@ -232,9 +236,11 @@ class SidechainRPC:
 class TemplateBuilder:
     """Fetch templates, insert BMM, and build Stratum jobs."""
 
-    def __init__(self, rpc: JsonRPC, sidechain_rpc: SidechainRPC):
+    def __init__(self, rpc: JsonRPC, sidechain_rpc, enable_sidechain: bool = True):
         self.rpc = rpc
         self.sidechain_rpc = sidechain_rpc
+        self.enable_sidechain = enable_sidechain
+
         self.current_job_id = 0
         self.current_template = None
         self.extranonce1 = "00000001"   # fixed extranonce1 for simple setups
@@ -244,7 +250,7 @@ class TemplateBuilder:
         self.jobs = {}
 
     def _build_coinbase(self, template, extranonce1_hex: str, extranonce2_hex: str) -> bytes:
-        """Build coinbase tx with BIP34 height, extranonces, P2PKH, and BMM OP_RETURN."""
+        """Build coinbase tx with BIP34 height, extranonces, P2PKH, and optional BMM OP_RETURN."""
         coinbase_value = template["coinbasevalue"]  # in satoshis
         height = template["height"]
 
@@ -258,23 +264,25 @@ class TemplateBuilder:
         script_sig_data = height_push + ex1 + ex2
         script_sig = varint(len(script_sig_data)) + script_sig_data
 
-        # Outputs
+        # Outputs list: (value_bytes, script_bytes)
+        outputs = []
 
         # 1) Miner payout
         miner_pk_script = build_p2pkh_script(MINER_PKH_HEX)
         miner_value = coinbase_value.to_bytes(8, "little")
-        miner_pk_len = varint(len(miner_pk_script))
+        outputs.append((miner_value, miner_pk_script))
 
-        # 2) BMM Accept OP_RETURN
-        try:
-            h_star_hex = self.sidechain_rpc.get_bmm_hash()
-        except Exception as e:
-            logging.warning(f"SidechainRPC get_bmm_hash failed: {e}, using zeros")
-            h_star_hex = "00" * 32
+        # 2) Optional BMM Accept OP_RETURN when sidechain is enabled
+        if self.enable_sidechain and self.sidechain_rpc is not None:
+            try:
+                h_star_hex = self.sidechain_rpc.get_bmm_hash()
+            except Exception as e:
+                logging.warning(f"SidechainRPC get_bmm_hash failed: {e}, using zeros")
+                h_star_hex = "00" * 32
 
-        bmm_script = build_bmm_accept_script(SIDECHAIN_NUMBER, h_star_hex)
-        bmm_value = (0).to_bytes(8, "little")
-        bmm_script_len = varint(len(bmm_script))
+            bmm_script = build_bmm_accept_script(SIDECHAIN_NUMBER, h_star_hex)
+            bmm_value = (0).to_bytes(8, "little")
+            outputs.append((bmm_value, bmm_script))
 
         # Assemble tx
         tx_version = (1).to_bytes(4, "little")
@@ -285,7 +293,7 @@ class TemplateBuilder:
         prevout_n = (0xffffffff).to_bytes(4, "little")
         sequence = (0xffffffff).to_bytes(4, "little")
 
-        output_count = varint(2)
+        output_count = varint(len(outputs))
 
         tx = (
             tx_version +
@@ -294,15 +302,13 @@ class TemplateBuilder:
             prevout_n +
             script_sig +
             sequence +
-            output_count +
-            miner_value +
-            miner_pk_len +
-            miner_pk_script +
-            bmm_value +
-            bmm_script_len +
-            bmm_script +
-            tx_locktime
+            output_count
         )
+
+        for value_bytes, script_bytes in outputs:
+            tx += value_bytes + varint(len(script_bytes)) + script_bytes
+
+        tx += tx_locktime
 
         return tx
 
@@ -648,11 +654,11 @@ class StratumConnection(threading.Thread):
 # ----------------------------
 
 class StratumServer:
-    def __init__(self, host, port, rpc: JsonRPC, sidechain_rpc: SidechainRPC):
+    def __init__(self, host, port, rpc: JsonRPC, sidechain_rpc, enable_sidechain: bool):
         self.host = host
         self.port = port
         self.rpc = rpc
-        self.tmpl_builder = TemplateBuilder(rpc, sidechain_rpc)
+        self.tmpl_builder = TemplateBuilder(rpc, sidechain_rpc, enable_sidechain)
 
     def start(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -676,10 +682,16 @@ class StratumServer:
 
 def main():
     rpc = JsonRPC(RPC_HOST, RPC_PORT, RPC_USER, RPC_PASSWORD)
-    sc_rpc = JsonRPC(SC_RPC_HOST, SC_RPC_PORT, SC_RPC_USER, SC_RPC_PASSWORD)
-    sidechain_rpc = SidechainRPC(sc_rpc)
 
-    server = StratumServer(STRATUM_HOST, STRATUM_PORT, rpc, sidechain_rpc)
+    sidechain_rpc = None
+    if ENABLE_SIDECHAIN:
+        logging.info("Sidechain support ENABLED (ENABLE_SIDECHAIN=1)")
+        sc_rpc = JsonRPC(SC_RPC_HOST, SC_RPC_PORT, SC_RPC_USER, SC_RPC_PASSWORD)
+        sidechain_rpc = SidechainRPC(sc_rpc)
+    else:
+        logging.info("Sidechain support DISABLED (ENABLE_SIDECHAIN=0)")
+
+    server = StratumServer(STRATUM_HOST, STRATUM_PORT, rpc, sidechain_rpc, ENABLE_SIDECHAIN)
     server.start()
 
 
