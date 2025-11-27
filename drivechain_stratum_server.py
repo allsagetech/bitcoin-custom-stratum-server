@@ -21,12 +21,39 @@ from base64 import b64encode
 from http.client import HTTPConnection
 import os
 
-# Try to load .env if python-dotenv is available
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+# ----------------------------
+# Simple .env loader (no python-dotenv dependency)
+# ----------------------------
+
+def load_simple_env(path: str = ".env") -> None:
+    """
+    Minimal .env loader:
+    - Lines starting with '#' are ignored
+    - Blank lines are ignored
+    - KEY=VALUE pairs are loaded into os.environ (if not already set)
+    - Surrounding single/double quotes around VALUE are stripped
+    """
+    if not os.path.exists(path):
+        return
+
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                # Do not override already-set environment variables
+                os.environ.setdefault(key, value)
+    except OSError as e:
+        logging.warning(f"Failed to read .env file '{path}': {e}")
+
+# Load .env before reading config
+load_simple_env()
 
 # ----------------------------
 # Config (from environment / .env)
