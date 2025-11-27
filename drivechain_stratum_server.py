@@ -78,6 +78,7 @@ ENABLE_SIDECHAIN = os.getenv("ENABLE_SIDECHAIN", "1") == "1"
 # Stratum server bind
 STRATUM_HOST = os.getenv("STRATUM_HOST", "0.0.0.0")
 STRATUM_PORT = int(os.getenv("STRATUM_PORT", "3333"))
+POOL_DIFFICULTY = float(os.getenv("POOL_DIFFICULTY", "1.0"))
 
 # Seconds between new jobs sent to miners
 JOB_REFRESH_INTERVAL = int(os.getenv("JOB_REFRESH_INTERVAL", "10"))
@@ -530,7 +531,7 @@ class StratumConnection(threading.Thread):
         self.send_json(resp)
 
         # Immediately send difficulty and a job
-        self.send_difficulty(1.0)
+        self.send_difficulty(POOL_DIFFICULTY)
         self.send_job()
 
     def handle_authorize(self, msg):
