@@ -21,6 +21,8 @@ from base64 import b64encode
 from http.client import HTTPConnection
 import os
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 # ----------------------------
 # Simple .env loader (no python-dotenv dependency)
 # ----------------------------
@@ -56,16 +58,35 @@ def load_simple_env(path: str = ".env") -> None:
 load_simple_env()
 
 # ----------------------------
+# Network selection (mainnet / testnet / regtest)
+# ----------------------------
+
+NETWORK = os.getenv("NETWORK", "regtest").lower()
+if NETWORK not in ("mainnet", "testnet", "regtest"):
+    logging.warning(f"Unknown NETWORK '{NETWORK}', defaulting to regtest")
+    NETWORK = "regtest"
+
+if NETWORK == "mainnet":
+    _DEFAULT_RPC_PORT = "8332"
+elif NETWORK == "testnet":
+    _DEFAULT_RPC_PORT = "18332"
+else:  # regtest
+    _DEFAULT_RPC_PORT = "18443"
+
+# ----------------------------
 # Config (from environment / .env)
 # ----------------------------
 
 # Mainchain (Drivechain-patched bitcoin) RPC
 RPC_HOST = os.getenv("RPC_HOST", "127.0.0.1")
-RPC_PORT = int(os.getenv("RPC_PORT", "18443"))
+RPC_PORT = int(os.getenv("RPC_PORT", _DEFAULT_RPC_PORT))
 RPC_USER = os.getenv("RPC_USER", "rpcuser")
 RPC_PASSWORD = os.getenv("RPC_PASSWORD", "rpcpassword")
 
+logging.info(f"Configured NETWORK={NETWORK}, RPC at {RPC_HOST}:{RPC_PORT}")
+
 # Sidechain RPC (Thunder / cusf_sidechain / etc.)
+# NOTE: Ports here are sidechain-implementation specific; override via env as needed per network.
 SC_RPC_HOST = os.getenv("SC_RPC_HOST", "127.0.0.1")
 SC_RPC_PORT = int(os.getenv("SC_RPC_PORT", "18554"))
 SC_RPC_USER = os.getenv("SC_RPC_USER", "scrpcuser")
@@ -91,9 +112,6 @@ SIDECHAIN_NUMBER = int(os.getenv("SIDECHAIN_NUMBER", "0"))  # set this to your s
 # 20-byte pubkey hash (NOT the whole address).
 # Example from `getaddressinfo "addr"` -> "pubkeyhash"
 MINER_PKH_HEX = os.getenv("MINER_PKH_HEX", "")
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
 
 # ----------------------------
 # Generic helpers
