@@ -1,0 +1,34 @@
+Drivechain Local Mining: Complete Setup Guide (bitcoind + Stratum Server + CGMiner USB)
+ 1. Overview
+ This unified guide explains how to build a full local Drivechain mining environment using:- Bitcoin Core (bitcoind)- Drivechain Stratum server- CGMiner (USB ASIC support: Antminer U1/U2, Block Erupter, etc.)- Windows + MSYS2 + WSL or Linux- Optional: Drivechain sidechain daemon
+ 2. Install & Configure Bitcoin Core (Mainchain Node)
+ Install Bitcoin Core and enable RPC in bitcoin.conf:
+ server=1
+ rpcuser=rpcuser
+ rpcpassword=rpcpassword
+ rpcport=8332
+ Start bitcoind with: bitcoind -daemon
+ Confirm RPC: bitcoin-cli getblockchaininfo
+ 3. (Optional) Install Sidechain Daemon
+ If using sidechains, ensure credentials match your .env:
+ SC_RPC_USER, SC_RPC_PASSWORD, SC_RPC_PORT
+ Set ENABLE_SIDECHAIN accordingly.
+ 4. Install MSYS2 (Windows)
+ Install MSYS2 from msys2.org and required packages:
+ mingw-w64-x86_64-gcc, pkg-config, libusb, openssl, jansson
+ 5. Install USB Drivers (CP210X)
+ Install Silicon Labs CP210x driver and confirm device shows as COM port.
+6. Build CGMiner
+ In MinGW64 terminal:
+ ./autogen.sh
+ CFLAGS="-O2 -Wall -fcommon" ./configure --enable-icarus --disable-opencl --disable-adl
+ make -j8
+ 7. Configure Stratum Server (.env)
+ Configure RPC, Stratum bind address, and payout pubkeyhash.
+ Obtain MINER_PKH_HEX using getnewaddress and getaddressinfo.
+ 8. Run Stratum Server
+ chmod +x drivechain_stratum_server.py
+ ./drivechain_stratum_server.py
+ 9. Run CGMiner
+ ./cgminer.exe -o stratum+tcp://127.0.0.1:3333 -u worker -p x
+ Use --ndevs to detect devices.
